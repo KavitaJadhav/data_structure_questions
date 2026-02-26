@@ -9,47 +9,51 @@ require 'byebug'
 
 
 class LRUCache
-  class Node
-    attr_accessor :next, :previous, :key, :value
 
-    def initialize(key, value)
-      @key = key
-      @value = value
-      @previous = nil
-      @next = nil
-    end
+  class NegativeCapacityException < StandardError
+
   end
 
+
   def initialize(capacity)
+    raise LRUCache::NegativeCapacityException unless capacity > 0
+
     @capacity = capacity
     @cache_map = {}
 
+    # Sentinel nodes
     @head = LRUCache::Node.new(nil, nil)
     @tail = LRUCache::Node.new(nil, nil)
     @head.next = @tail
     @tail.previous = @head
+
+    @mutex = Mutex.new
   end
 
   def put(key, value)
-    node = @cache_map[key]
+    @mutex.synchronize do
+      node = @cache_map[key]
 
-    if node
-      node.value = value
-      move_to_front(node)
-    else
-      evict_if_full
+      if node
+        node.value = value
+        move_to_front(node)
+      else
+        evict_if_full
 
-      node = LRUCache::Node.new(key, value)
-      @cache.add_to_front(node)
-      @cache_map[key] = node
+        node = LRUCache::Node.new(key, value)
+        add_to_front(node)
+        @cache_map[key] = node
+      end
     end
   end
 
   def get(key)
-    node = @cache_map[key]
-    if node
-      move_to_front(node)
-      node.value
+    @mutex.synchronize do
+      node = @cache_map[key]
+      if node
+        move_to_front(node)
+        node.value
+      end
     end
   end
 
@@ -90,7 +94,6 @@ class LRUCache
     @head.next = node
   end
 
-
   def evict_if_full
     return unless full?
 
@@ -106,9 +109,26 @@ class LRUCache
     node.previous = nil
     node
   end
+
+  private
+
+  class Node
+    attr_reader :key
+    attr_accessor :value, :previous, :next
+
+    def initialize(key, value)
+      @key = key
+      @value = value
+      @previous = nil
+      @next = nil
+    end
+  end
+
+  private_constant Node
+
 end
 
-lru_cache = LRUCache.new(2)
+lru_cache = LRUCache.new(3)
 lru_cache.put(1, 'one')
 lru_cache.put(2, 'two')
 lru_cache.get(1)
@@ -119,4 +139,4 @@ lru_cache.put(4, 'four')
 lru_cache.get(4)
 lru_cache.put(5, 'five')
 
-puts lru_cache.pairs
+puts lru_cache.to_h

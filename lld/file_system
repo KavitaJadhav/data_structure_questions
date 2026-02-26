@@ -1,0 +1,289 @@
+Perfect! Let’s create a **complete staff-level mock interview package** for Box:
+
+* **Enhanced in-memory file system code (Ruby, OOP, versioning, permissions, path service)**
+* **30-minute code review discussion script** — what to say for design, tradeoffs, scalability, and extensions.
+
+This is **exactly what you could present in a Warsaw Box coding round**.
+
+---
+
+# **1️⃣ Staff-Level Ruby In-Memory File System**
+
+```ruby
+# Permission manager handles roles per user
+class PermissionManager
+  def initialize
+    @permissions = {} # user_id => role
+  end
+
+  def set_permission(user_id, role)
+    @permissions[user_id] = role
+  end
+
+  def get_role(user_id)
+    @permissions[user_id] || :none
+  end
+
+  def allow?(user_id, action)
+    role = get_role(user_id)
+    case role
+    when :owner
+      true
+    when :write
+      action != :read
+    when :read
+      action == :read
+    else
+      false
+    end
+  end
+end
+
+# Base Node class
+class Node
+  attr_accessor :name, :parent, :permissions
+
+  def initialize(name, parent=nil)
+    @name = name
+    @parent = parent
+    @permissions = PermissionManager.new
+  end
+
+  def path
+    return "/" if parent.nil?
+    parent_path = parent.path == "/" ? "" : parent.path
+    "#{parent_path}/#{name}"
+  end
+end
+
+# File with versioning
+class FileNode < Node
+  attr_accessor :versions
+
+  def initialize(name, parent=nil)
+    super(name, parent)
+    @versions = []
+  end
+
+  def write(content, user_id=nil)
+    check_permission(user_id, :write)
+    @versions << content
+  end
+
+  def read(user_id=nil)
+    check_permission(user_id, :read)
+    @versions.last
+  end
+
+  def rollback(version_index)
+    raise "Invalid version" if version_index < 0 || version_index >= versions.size
+    @versions = versions[0..version_index]
+  end
+
+  private
+
+  def check_permission(user_id, action)
+    return if user_id.nil?
+    raise "Permission denied for #{action}" unless permissions.allow?(user_id, action)
+  end
+end
+
+# Directory holding children
+class DirectoryNode < Node
+  attr_accessor :children
+
+  def initialize(name, parent=nil)
+    super(name, parent)
+    @children = {}
+  end
+
+  def add_node(node)
+    raise "Node exists" if children.key?(node.name)
+    children[node.name] = node
+    node.parent = self
+  end
+
+  def get_node(name)
+    children[name]
+  end
+
+  def list
+    children.keys
+  end
+end
+
+# Path traversal and parent lookup
+class PathService
+  def initialize(root)
+    @root = root
+  end
+
+  def find_node(path)
+    parts = path.split("/").reject(&:empty?)
+    node = @root
+    parts.each do |part|
+      node = node.get_node(part)
+      raise "Path not found: #{part}" if node.nil?
+    end
+    node
+  end
+
+  def find_parent(path)
+    parts = path.split("/").reject(&:empty?)
+    name = parts.pop
+    parent = @root
+    parts.each do |part|
+      parent = parent.get_node(part)
+      raise "Directory not found: #{part}" if parent.nil? || !parent.is_a?(DirectoryNode)
+    end
+    [parent, name]
+  end
+end
+
+# Main FileSystem class
+class FileSystem
+  attr_accessor :root, :path_service
+
+  def initialize
+    @root = DirectoryNode.new("/")
+    @path_service = PathService.new(@root)
+  end
+
+  def mkdir(path)
+    parent, name = path_service.find_parent(path)
+    raise "Directory exists" if parent.get_node(name)
+    parent.add_node(DirectoryNode.new(name, parent))
+  end
+
+  def write_file(path, content, user_id=nil)
+    parent, name = path_service.find_parent(path)
+    node = parent.get_node(name)
+    if node.nil?
+      node = FileNode.new(name, parent)
+      parent.add_node(node)
+    end
+    node.write(content, user_id)
+  end
+
+  def read_file(path, user_id=nil)
+    node = path_service.find_node(path)
+    raise "Not a file" unless node.is_a?(FileNode)
+    node.read(user_id)
+  end
+
+  def list_dir(path)
+    node = path_service.find_node(path)
+    raise "Not a directory" unless node.is_a?(DirectoryNode)
+    node.list
+  end
+end
+
+# Example usage
+fs = FileSystem.new
+fs.mkdir("/docs")
+fs.write_file("/docs/file1.txt", "v1 content")
+fs.write_file("/docs/file1.txt", "v2 content")
+puts fs.read_file("/docs/file1.txt") # => "v2 content"
+fs.list_dir("/docs") # => ["file1.txt"]
+```
+
+---
+
+# **2️⃣ Staff-Level Code Review Script**
+
+Use this when the interviewer asks: *“Walk me through your design.”*
+
+---
+
+### **Step 1 – Overview**
+
+> “I’ve implemented an in-memory file system with OOP design.
+> Key features: files & directories, versioning, and per-user permissions.
+> I separated responsibilities into classes to make it modular, testable, and extensible.”
+
+---
+
+### **Step 2 – Key Classes**
+
+1. **Node** – base class for `FileNode` and `DirectoryNode`
+
+   * Holds `name`, `parent`, and `permissions`
+2. **FileNode** – stores content versions, supports read/write/rollback
+3. **DirectoryNode** – manages child nodes
+4. **PermissionManager** – centralized permission logic per node
+5. **PathService** – handles path parsing and parent lookup
+6. **FileSystem** – main interface for mkdir, read/write, and list
+
+---
+
+### **Step 3 – Design Decisions**
+
+* **PermissionManager** separated for modularity → easy to extend for groups, inheritance, or ACLs
+* **PathService** decouples path traversal → simplifies FileSystem logic, easier testing
+* **Versioning array** → append-only history, allows rollback
+* **HashMap children** → O(1) lookup for directories
+
+---
+
+### **Step 4 – Complexity**
+
+* **Time**
+
+  * Traversal: O(depth)
+  * File write/read: O(1) after traversal
+  * List dir: O(n) (# of children)
+* **Space**
+
+  * Versioning: O(v) per file
+  * Permissions: O(u) per node
+
+---
+
+### **Step 5 – Edge Cases**
+
+* Non-existent path → error
+* Duplicate file/dir → error
+* Reading a directory as a file → error
+* Permission denied → raises exception
+
+---
+
+### **Step 6 – Scalability & Tradeoffs**
+
+1. **Versioning** – current: memory-intensive
+
+   * Option: persist older versions externally, or store diffs
+2. **Permissions** – currently per-node
+
+   * Option: inherit from directories, support groups, use ACL tables
+3. **Traversal** – currently linear by path
+
+   * Option: cache frequently accessed paths or flatten namespace
+4. **Concurrency** – not handled yet
+
+   * Option: locks per node or directory, optimistic concurrency for versions
+5. **Memory limits** – can cap file size or number of versions
+
+---
+
+### **Step 7 – Extensions / Future Work**
+
+* Soft delete / recycle bin
+* Search by name or content
+* Sharing files with multiple users
+* Snapshots or backups
+* Scaling to distributed in-memory FS (sharding by directory or file ID)
+
+---
+
+### ✅ **Pro-Tip**
+
+> Always explain **why** you made each design choice and what tradeoffs exist.
+> For example:
+> “I chose to separate PermissionManager so that adding group-based ACLs won’t touch Node logic — improves modularity and maintainability.”
+
+---
+
+If you want, I can also **draw a diagram of the class hierarchy + path traversal** — it’s very impressive visually in interviews and makes your explanation much stronger.
+
+Do you want me to do that next?

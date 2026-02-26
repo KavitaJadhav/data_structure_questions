@@ -1,0 +1,290 @@
+Absolutely! Let’s create **interview-ready notes for Multi-Level Cache**, combining **summary, staff-level discussion points, and Ruby classes** all in one place. This will include **Cache-aside, Write-through, Write-back** strategies.
+
+---
+
+# 📝 Multi-Level Cache — Notes & Ruby Implementation
+
+---
+
+## 1️⃣ Overview
+
+A **multi-level cache** is a caching system with **multiple layers**:
+
+* **L1:** Fast, local (per process, in-memory)
+* **L2:** Slower, shared (Redis, Memcached)
+* **L3:** Optional, even slower, persistent cache
+
+### Staff-Level Concepts
+
+* **Cache Strategies:**
+
+  * **Cache-aside (lazy loading)** – app manages cache; simplest
+  * **Read-through** – cache fetches from DB on miss
+  * **Write-through** – writes go to cache + DB synchronously
+  * **Write-back** – writes go to cache first, DB async
+* **Eviction:** LRU or LFU for in-memory caches
+* **Thundering Herd:** Prevent via per-key locks or request collapsing
+* **Monitoring:** Hit/miss ratio, eviction rates, latency, DB fallback
+
+---
+
+## 2️⃣ Flow Summary
+
+| Pattern       | Read Path                | Write Path                       | Consistency |
+| ------------- | ------------------------ | -------------------------------- | ----------- |
+| Cache-aside   | App → Cache → DB if miss | App writes DB + invalidate cache | Medium      |
+| Read-through  | Cache → DB if miss       | App writes DB                    | Medium      |
+| Write-through | Cache → DB if miss       | Sync cache + DB                  | Strong      |
+| Write-back    | Cache → DB if miss       | Async flush DB                   | Eventual    |
+
+---
+
+## 3️⃣ Ruby Classes Design
+
+We define a **clean OOP structure**:
+
+* **CacheLevel** – Base interface
+* **InMemoryCache** – L1 cache (LRU)
+* **SimulatedRedisCache** – L2 cache
+* **MultiLevelCache** – Core orchestration, supports multiple strategies
+
+---
+
+### 3.1 Base Interface
+
+```ruby
+class CacheLevel
+  def get(key)
+    raise NotImplementedError
+  end
+
+  def put(key, value)
+    raise NotImplementedError
+  end
+
+  def delete(key)
+    raise NotImplementedError
+  end
+end
+```
+
+---
+
+### 3.2 In-Memory LRU Cache (L1)
+
+```ruby
+class LRUNode
+  attr_accessor :key, :value, :prev, :next
+
+  def initialize(key, value)
+    @key = key
+    @value = value
+  end
+end
+
+class InMemoryCache < CacheLevel
+  def initialize(capacity)
+    @capacity = capacity
+    @map = {}
+    @head = LRUNode.new(nil, nil)
+    @tail = LRUNode.new(nil, nil)
+    @head.next = @tail
+    @tail.prev = @head
+  end
+
+  def get(key)
+    node = @map[key]
+    return nil unless node
+    move_to_front(node)
+    node.value
+  end
+
+  def put(key, value)
+    if @map[key]
+      node = @map[key]
+      node.value = value
+      move_to_front(node)
+    else
+      node = LRUNode.new(key, value)
+      @map[key] = node
+      add_to_front(node)
+      evict if @map.size > @capacity
+    end
+  end
+
+  def delete(key)
+    node = @map.delete(key)
+    remove(node) if node
+  end
+
+  private
+
+  def add_to_front(node)
+    node.next = @head.next
+    node.prev = @head
+    @head.next.prev = node
+    @head.next = node
+  end
+
+  def remove(node)
+    node.prev.next = node.next
+    node.next.prev = node.prev
+  end
+
+  def move_to_front(node)
+    remove(node)
+    add_to_front(node)
+  end
+
+  def evict
+    lru = @tail.prev
+    remove(lru)
+    @map.delete(lru.key)
+  end
+end
+```
+
+---
+
+### 3.3 Simulated L2 Cache (Redis)
+
+```ruby
+class SimulatedRedisCache < CacheLevel
+  def initialize
+    @store = {}
+  end
+
+  def get(key)
+    sleep(0.01) # simulate network latency
+    @store[key]
+  end
+
+  def put(key, value)
+    sleep(0.01)
+    @store[key] = value
+  end
+
+  def delete(key)
+    @store.delete(key)
+  end
+end
+```
+
+---
+
+### 3.4 Multi-Level Cache
+
+```ruby
+class MultiLevelCache
+  def initialize(levels, strategy: :cache_aside)
+    @levels = levels
+    @strategy = strategy
+    @write_buffer = []
+  end
+
+  # ---------------------
+  # READ
+  # ---------------------
+  def get(key)
+    @levels.each_with_index do |level, index|
+      value = level.get(key)
+      if value
+        promote(key, value, index)
+        return value
+      end
+    end
+    nil
+  end
+
+  # ---------------------
+  # WRITE
+  # ---------------------
+  def put(key, value)
+    case @strategy
+    when :cache_aside
+      @levels.each { |level| level.put(key, value) }
+
+    when :write_through
+      @levels.each { |level| level.put(key, value) }
+
+    when :write_back
+      @levels.first.put(key, value)
+      @write_buffer << [key, value]
+      async_flush
+    else
+      raise "Unknown strategy"
+    end
+  end
+
+  def delete(key)
+    @levels.each { |level| level.delete(key) }
+  end
+
+  private
+
+  def promote(key, value, level_index)
+    return if level_index == 0
+    @levels[0...level_index].each { |level| level.put(key, value) }
+  end
+
+  def async_flush
+    Thread.new do
+      while (entry = @write_buffer.shift)
+        @levels[1..-1].each { |level| level.put(entry[0], entry[1]) }
+      end
+    end
+  end
+end
+```
+
+---
+
+## 4️⃣ Example Usage
+
+```ruby
+l1 = InMemoryCache.new(3)
+l2 = SimulatedRedisCache.new
+
+cache = MultiLevelCache.new([l1, l2], strategy: :write_back)
+
+cache.put("a", 100)
+cache.put("b", 200)
+puts cache.get("a")  # => 100
+puts cache.get("b")  # => 200
+
+cache.put("c", 300)
+cache.put("d", 400)  # L1 evicts oldest
+puts cache.get("a")  # => 100 (promoted from L2)
+```
+
+---
+
+## 5️⃣ Staff-Level Discussion Points
+
+1. **Thundering Herd:** Use per-key locks or request collapsing
+2. **Eviction coordination:** L1 vs L2; L1 small & fast, L2 larger
+3. **Consistency:**
+
+   * Write-through → strong consistency
+   * Write-back → eventual consistency
+4. **Scalability:**
+
+   * Multiple L1 per process
+   * L2 distributed cluster
+   * Can extend with L3 or multi-region
+5. **Observability:** Hit ratio, miss ratio, evictions, latency, DB fallback
+6. **Edge Cases:**
+
+   * L2 failure → fallback to DB
+   * L1 eviction of hot keys → promote from L2
+   * Concurrent writes → write-back buffering
+
+---
+
+✅ This gives **everything in one place**: theory, design notes, code, and staff-level discussion points.
+
+---
+
+If you want, I can now **combine Multi-Level Cache + Sharded Storage** into a **single production-grade system** ready for Box-level interviews.
+
+Do you want me to do that?

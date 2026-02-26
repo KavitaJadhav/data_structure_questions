@@ -1,3 +1,5 @@
+# Note.. Use optimized version
+
 # LRU Cache
 
 # Todo:

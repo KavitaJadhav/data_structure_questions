@@ -1,0 +1,386 @@
+Absolutely! Let’s take all the **enhanced staff-level implementations** we’ve discussed — **In-memory File System** and **Rate Limiter** — and make them **production-ready with custom exceptions**, and provide **detailed staff-level discussion points** in one unified, interview-ready package.
+
+I’ll include:
+
+* **Custom exceptions** for clarity
+* **OOP structure**
+* **Extensible design**
+* **Detailed discussion points**
+
+---
+
+# **1️⃣ Custom Exceptions**
+
+```ruby
+class FileSystemError < StandardError; end
+class FileNotFoundError < FileSystemError; end
+class DirectoryNotFoundError < FileSystemError; end
+class NodeAlreadyExistsError < FileSystemError; end
+class PermissionDeniedError < FileSystemError; end
+class InvalidVersionError < FileSystemError; end
+class RateLimitExceededError < StandardError; end
+```
+
+These improve **clarity** and allow interviewers to see that **error handling is part of the design**.
+
+---
+
+# **2️⃣ Staff-Level In-Memory File System (Ruby OOP, Versioning, Permissions, Path Service)**
+
+```ruby
+# --- Permission Manager ---
+class PermissionManager
+  def initialize
+    @permissions = {} # user_id => role
+  end
+
+  def set_permission(user_id, role)
+    @permissions[user_id] = role
+  end
+
+  def get_role(user_id)
+    @permissions[user_id] || :none
+  end
+
+  def allow?(user_id, action)
+    role = get_role(user_id)
+    case role
+    when :owner
+      true
+    when :write
+      action != :read
+    when :read
+      action == :read
+    else
+      false
+    end
+  end
+end
+
+# --- Node Hierarchy ---
+class Node
+  attr_accessor :name, :parent, :permissions
+
+  def initialize(name, parent=nil)
+    @name = name
+    @parent = parent
+    @permissions = PermissionManager.new
+  end
+
+  def path
+    return "/" if parent.nil?
+    parent_path = parent.path == "/" ? "" : parent.path
+    "#{parent_path}/#{name}"
+  end
+end
+
+class FileNode < Node
+  attr_accessor :versions
+
+  def initialize(name, parent=nil)
+    super(name, parent)
+    @versions = []
+  end
+
+  def write(content, user_id=nil)
+    check_permission(user_id, :write)
+    @versions << content
+  end
+
+  def read(user_id=nil)
+    check_permission(user_id, :read)
+    raise FileNotFoundError, "File has no versions" if @versions.empty?
+    @versions.last
+  end
+
+  def rollback(version_index)
+    raise InvalidVersionError, "Invalid version" if version_index < 0 || version_index >= @versions.size
+    @versions = @versions[0..version_index]
+  end
+
+  private
+
+  def check_permission(user_id, action)
+    return if user_id.nil?
+    raise PermissionDeniedError, "Permission denied for #{action}" unless permissions.allow?(user_id, action)
+  end
+end
+
+class DirectoryNode < Node
+  attr_accessor :children
+
+  def initialize(name, parent=nil)
+    super(name, parent)
+    @children = {}
+  end
+
+  def add_node(node)
+    raise NodeAlreadyExistsError, "Node already exists" if children.key?(node.name)
+    children[node.name] = node
+    node.parent = self
+  end
+
+  def get_node(name)
+    children[name]
+  end
+
+  def list
+    children.keys
+  end
+end
+
+# --- Path Service ---
+class PathService
+  def initialize(root)
+    @root = root
+  end
+
+  def find_node(path)
+    parts = path.split("/").reject(&:empty?)
+    node = @root
+    parts.each do |part|
+      node = node.get_node(part)
+      raise FileNotFoundError, "Path not found: #{part}" if node.nil?
+    end
+    node
+  end
+
+  def find_parent(path)
+    parts = path.split("/").reject(&:empty?)
+    name = parts.pop
+    parent = @root
+    parts.each do |part|
+      parent = parent.get_node(part)
+      raise DirectoryNotFoundError, "Directory not found: #{part}" if parent.nil? || !parent.is_a?(DirectoryNode)
+    end
+    [parent, name]
+  end
+end
+
+# --- File System ---
+class FileSystem
+  attr_accessor :root, :path_service
+
+  def initialize
+    @root = DirectoryNode.new("/")
+    @path_service = PathService.new(@root)
+  end
+
+  def mkdir(path)
+    parent, name = path_service.find_parent(path)
+    raise NodeAlreadyExistsError, "Directory already exists" if parent.get_node(name)
+    parent.add_node(DirectoryNode.new(name, parent))
+  end
+
+  def write_file(path, content, user_id=nil)
+    parent, name = path_service.find_parent(path)
+    node = parent.get_node(name)
+    if node.nil?
+      node = FileNode.new(name, parent)
+      parent.add_node(node)
+    end
+    node.write(content, user_id)
+  end
+
+  def read_file(path, user_id=nil)
+    node = path_service.find_node(path)
+    raise FileNotFoundError, "Not a file" unless node.is_a?(FileNode)
+    node.read(user_id)
+  end
+
+  def list_dir(path)
+    node = path_service.find_node(path)
+    raise DirectoryNotFoundError, "Not a directory" unless node.is_a?(DirectoryNode)
+    node.list
+  end
+end
+```
+
+---
+
+# **3️⃣ Staff-Level Flexible Rate Limiter (Sliding, Leaky, Token Buckets)**
+
+```ruby
+# Base policy class
+class RateLimitPolicy
+  def initialize(limit:, window_size:)
+    @limit = limit
+    @window_size = window_size
+  end
+
+  def allow_request?(user_id)
+    raise NotImplementedError, "Must implement in subclass"
+  end
+end
+
+# Sliding window
+class SlidingWindowPolicy < RateLimitPolicy
+  def initialize(limit:, window_size:)
+    super
+    @buckets = {} # user_id => [timestamps]
+  end
+
+  def allow_request?(user_id)
+    @buckets[user_id] ||= []
+    now = Time.now
+    @buckets[user_id].reject! { |t| t < now - @window_size }
+    if @buckets[user_id].size < @limit
+      @buckets[user_id] << now
+      true
+    else
+      raise RateLimitExceededError, "Rate limit exceeded (Sliding Window)"
+    end
+  end
+end
+
+# Leaky bucket
+class LeakyBucketPolicy < RateLimitPolicy
+  def initialize(limit:, window_size:)
+    super
+    @buckets = {} # user_id => {water, last}
+  end
+
+  def allow_request?(user_id)
+    now = Time.now
+    bucket = @buckets[user_id] ||= { water: 0, last: now }
+
+    leak_rate = @limit.to_f / @window_size
+    elapsed = now - bucket[:last]
+    bucket[:water] = [bucket[:water] - leak_rate * elapsed, 0].max
+    bucket[:last] = now
+
+    if bucket[:water] < @limit
+      bucket[:water] += 1
+      true
+    else
+      raise RateLimitExceededError, "Rate limit exceeded (Leaky Bucket)"
+    end
+  end
+end
+
+# Token bucket
+class TokenBucketPolicy < RateLimitPolicy
+  def initialize(limit:, window_size:)
+    super
+    @buckets = {} # user_id => {tokens, last}
+  end
+
+  def allow_request?(user_id)
+    now = Time.now
+    bucket = @buckets[user_id] ||= { tokens: @limit, last: now }
+
+    refill_rate = @limit.to_f / @window_size
+    elapsed = now - bucket[:last]
+    bucket[:tokens] = [bucket[:tokens] + refill_rate * elapsed, @limit].min
+    bucket[:last] = now
+
+    if bucket[:tokens] >= 1
+      bucket[:tokens] -= 1
+      true
+    else
+      raise RateLimitExceededError, "Rate limit exceeded (Token Bucket)"
+    end
+  end
+end
+
+# Flexible RateLimiter
+class RateLimiter
+  POLICY_MAP = {
+    sliding_window: SlidingWindowPolicy,
+    leaky_bucket: LeakyBucketPolicy,
+    token_bucket: TokenBucketPolicy
+  }
+
+  def initialize(policy_type:, limit:, window_size:)
+    policy_class = POLICY_MAP[policy_type] || raise("Unknown policy")
+    @policy = policy_class.new(limit: limit, window_size: window_size)
+  end
+
+  def allow_request?(user_id)
+    @policy.allow_request?(user_id)
+  end
+end
+```
+
+---
+
+# **4️⃣ Staff-Level Discussion Points**
+
+### **File System**
+
+**Design**
+
+* OOP hierarchy: `Node`, `FileNode`, `DirectoryNode`
+* Permissions: `PermissionManager` → modular, easy to extend to groups/ACLs
+* PathService: decouples traversal from FileSystem logic → testable
+* Versioning: append-only array, supports rollback
+
+**Complexity**
+
+* Read/Write: O(depth) for traversal
+* Directory list: O(n) (# of children)
+* Version rollback: O(1) slice
+
+**Edge Cases / Exceptions**
+
+* Custom exceptions make errors explicit
+* Handles missing files, permission errors, invalid versions
+
+**Scaling**
+
+* Persistent storage: DB for large versions
+* Permission inheritance
+* Distributed locks for concurrency
+
+**Extensions**
+
+* Soft delete / recycle bin
+* Search and snapshots
+* Multiple users per file
+
+---
+
+### **Rate Limiter**
+
+**Design**
+
+* Policy pattern allows **dynamic choice**: Sliding, Leaky, Token
+* Per-user buckets encapsulate state
+* Exception handling: `RateLimitExceededError`
+
+**Complexity**
+
+| Policy  | Time | Space         |
+| ------- | ---- | ------------- |
+| Sliding | O(n) | O(n) per user |
+| Leaky   | O(1) | O(1) per user |
+| Token   | O(1) | O(1) per user |
+
+**Scaling**
+
+* Distributed: Redis or atomic counter for multiple servers
+* Concurrency: locks or atomic operations
+* Supports burst handling with token bucket
+
+**Extensions**
+
+* Dynamic limits per user
+* Multi-endpoint policies
+* Sliding window optimization (bucketed timestamps)
+
+---
+
+### ✅ **Interview Tip**
+
+> “I used custom exceptions to make error handling explicit, a separate `PermissionManager` for modular access control, and the policy pattern for rate limiting so it’s easy to extend with new algorithms. I also designed the system with scaling, concurrency, and distributed deployment in mind.”
+
+---
+
+If you want, I can **draw a single diagram showing the full architecture**:
+
+* File system (nodes, permissions, path service)
+* Rate limiter (user buckets, policies, exceptions)
+
+This is **extremely powerful visually in L5/Staff-level interviews**.
+
+Do you want me to create that diagram?

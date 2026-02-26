@@ -1,0 +1,206 @@
+Absolutely! Let’s do a **staff-level Google-ready write-up** for **LRU Cache**, including **code, trade-offs, thread safety, TTL, sharding, and distributed considerations** — exactly what L5/L6 interviewers expect.
+
+---
+
+# 🏗 LRU Cache — Staff-Level Notes
+
+## Problem
+
+> Implement a **Least Recently Used (LRU) Cache** with `get` and `put` operations in **O(1) time**.
+
+**Constraints / Requirements:**
+
+* Evict least recently used item when capacity is full.
+* `get(key)` → return value, also marks key as recently used.
+* `put(key, value)` → insert or update value, mark as recently used.
+* Optional extensions: TTL (time-to-live), sharding, thread-safety, distributed cache.
+
+---
+
+## ✅ 1. Standard Staff-Level Approach
+
+* **HashMap + Doubly Linked List**
+
+* HashMap: key → Node (for O(1) lookup)
+* Doubly Linked List: maintain **recency order**
+
+* Head = most recently used
+* Tail = least recently used
+* Operations:
+
+* `get`: move node to front, return value
+* `put`: if key exists, update + move to front
+* `put`: if new key, insert front; if capacity full, evict tail
+
+---
+
+### Ruby Implementation (Thread-Safe, Staff-Level)
+
+```ruby id="9uz2yz"
+class LRUCache
+class Node
+attr_accessor :key, :value, :prev, :next
+def initialize(key, value)
+@key = key
+@value = value
+@prev = nil
+@next = nil
+end
+end
+
+def initialize(capacity)
+@capacity = capacity
+@map = {}
+@head = Node.new(nil, nil)  # dummy head
+@tail = Node.new(nil, nil)  # dummy tail
+@head.next = @tail
+@tail.prev = @head
+@mutex = Mutex.new        # thread-safety
+end
+
+# Staff-level: get value and mark as recently used
+def get(key)
+@mutex.synchronize do
+node = @map[key]
+return nil unless node
+move_to_front(node)
+node.value
+end
+end
+
+# Staff-level: put value, handle update and eviction
+def put(key, value)
+@mutex.synchronize do
+if @map.key?(key)
+node = @map[key]
+node.value = value
+move_to_front(node)
+else
+evict_if_full
+node = Node.new(key, value)
+add_to_front(node)
+@map[key] = node
+end
+end
+end
+
+private
+
+# Move existing node to front
+def move_to_front(node)
+remove(node)
+add_to_front(node)
+end
+
+# Add node right after head
+def add_to_front(node)
+node.next = @head.next
+node.prev = @head
+@head.next.prev = node
+@head.next = node
+end
+
+# Remove node from list
+def remove(node)
+node.prev.next = node.next
+node.next.prev = node.prev
+end
+
+# Evict least recently used
+def evict_if_full
+return if @map.size < @capacity
+lru = @tail.prev
+remove(lru)
+@map.delete(lru.key)
+end
+end
+```
+
+---
+
+## ⚖️ Trade-offs
+
+| Aspect         | Choice                                 | Trade-Off                                                  |
+| -------------- | -------------------------------------- | ---------------------------------------------------------- |
+| Data Structure | HashMap + Doubly Linked List           | O(1) get/put, but requires custom list                     |
+| Alternative    | Ordered HashMap / Ruby `LinkedHashMap` | Built-in, but may be slower in strict O(1) requirements    |
+| Thread Safety  | Mutex                                  | Prevents race conditions, slightly slower                  |
+| Memory         | Store nodes                            | Extra memory per node for prev/next                        |
+| TTL            | Lazy vs Eager                          | Lazy = check TTL on get; Eager = background cleanup thread |
+| Sharding       | Partition by key hash                  | Reduces lock contention, supports higher throughput        |
+| Distributed    | Consistent hashing                     | Needed if cache shared across multiple machines            |
+
+---
+
+## 🧠 Staff-Level Extensions / Follow-Ups
+
+### 1. **TTL (Time-to-Live)**
+
+* **Lazy expiration:** check TTL on `get` → remove if expired
+* **Eager expiration:** background thread periodically evicts expired items
+* **Trade-off:** lazy saves CPU for infrequently used keys; eager prevents memory bloat
+
+### 2. **Sharded LRU**
+
+* Split cache into `n` shards by key hash
+* Each shard is independent → reduces lock contention
+* Useful for high throughput / multi-threaded workloads
+
+### 3. **Distributed LRU Cluster**
+
+* For massive scale / multiple machines
+* Techniques:
+
+* **Consistent hashing** → map keys to shards
+* **LRU per node** → local eviction
+* **Optional global eviction** → keep overall capacity bounded
+* Trade-offs:
+
+* Network cost vs local cache efficiency
+* Cache misses if key moves shard
+
+### 4. **Thread-Safety / Concurrency**
+
+* Naive: global `Mutex` → correct but slows throughput
+* Advanced: per-shard locks or lock-free data structures
+* Consider **read-heavy workloads**: read-write locks or concurrent map
+
+---
+
+## ✅ Staff-Level Talking Points
+
+* **Complexity**
+
+* Time: O(1) get/put
+* Space: O(N) nodes + map
+* **Edge Cases**
+
+* Capacity = 0 → no-op or raise
+* Updating existing key
+* Concurrent access / race conditions
+* **Scaling**
+
+* Parallel threads → sharded cache
+* Distributed cluster → consistent hashing + per-node LRU
+* TTL → lazy vs eager eviction
+* **Extensions**
+
+* Cache metrics: hits, misses
+* Background cleanup
+* Persistent or hybrid cache (e.g., Redis)
+
+---
+
+### 💎 L6 / Staff-Level Notes
+
+* Always justify **O(1) operations** and why HashMap + DLL works
+* Discuss **trade-offs of lazy vs eager TTL**
+* Discuss **parallelism / sharding** for high throughput
+* Discuss **distributed scenarios**: consistency vs availability trade-offs
+* Be prepared to diagram cache structure with head/tail and eviction
+
+---
+
+If you want, I can now **combine the notes for all three problems** — **Top K, Merge K Lists, LRU Cache** — into **one L6-ready Google-style prep sheet** with **time/space analysis, trade-offs, extensions, and diagram ideas**.
+
+Do you want me to do that?
