@@ -1,5 +1,9 @@
 require 'byebug'
 
+# //https://leetcode.com/problems/number-of-connected-components-in-an-undirected-graph/description/
+#     //https://github.com/KavitaJadhav/data_structure_questions/blob/main/ds_patterns/union_find/connected_componenets.rb
+# //https://www.youtube.com/watch?v=8f1XPm4WOUc
+
 # What is happening here
 
 # def connected_componenets(edges, count)
