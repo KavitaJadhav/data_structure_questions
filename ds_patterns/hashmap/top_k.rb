@@ -3,7 +3,6 @@
 
 # Input:  = [1,1,1,2,2,3], k = 2
 # Output: [1,2]
-# Since lists don’t fit in memory and are distributed, I wouldn’t centralize merging. I’d use a hierarchical tree-based merge. Each machine performs local merges first to exploit data locality. Then we perform log(k) rounds of pairwise distributed streaming merges. Each node maintains only small input buffers, so memory remains bounded. We checkpoint intermediate outputs to ensure fault tolerance and avoid single points of failure.
 
 def top(k, numbers)
   return [] if k > numbers.count || k < 0

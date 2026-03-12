@@ -1,3 +1,4 @@
+# https://leetcode.com/problems/min-cost-to-connect-all-points/?envType=problem-list-v2&envId=minimum-spanning-tree&
 # @param {Integer[][]} points
 # @return {Integer}
 #

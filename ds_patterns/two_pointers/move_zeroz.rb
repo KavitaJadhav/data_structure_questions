@@ -34,4 +34,5 @@ end
 
 puts move_zeroes([0]) == [0]
 puts move_zeroes([0, 1, 0, 3, 12]) == [1, 3, 12, 0, 0]
+puts move_zeroes([1,0,1]) == [1,1,0]
 puts move_zeroes([1, 2, 0, 4, 0, 5, 0, 6]) == [1, 2, 4, 5, 6, 0, 0, 0]
